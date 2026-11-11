@@ -15,4 +15,179 @@
   .tagline { color:#bbb; text-align:center; margin:10px 0 20px; }
   .cats { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
   .cat { background:#1f6feb; color:#fff; border:none; padding:28px 10px; border-radius:14px; font-size:18px; cursor:pointer; }
-  .back { background:none; border:none; color:#58a6ff; fo
+  .back { background:none; border:none; color:#58a6ff; font-size:16px; padding:6px 0 14px; cursor:pointer; }
+  .vid { background:#1c1c1c; border-radius:12px; padding:14px; margin-bottom:12px; cursor:pointer; display:flex; justify-content:space-between; align-items:center; }
+  .vid span { color:#58a6ff; font-size:14px; }
+  #playerBox { width:100%; aspect-ratio:16/9; background:#000; border-radius:12px; overflow:hidden; }
+  #playerBox iframe { width:100%; height:100%; }
+  .stats { background:#1c1c1c; border-radius:12px; padding:14px; margin-top:14px; text-align:center; }
+  .stats b { font-size:22px; display:block; margin:6px 0; }
+  .note { color:#8b949e; font-size:13px; text-align:center; margin-top:16px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1 onclick="goHome()">Creator Guild</h1>
+  <div id="wallet">₹0.00</div>
+</header>
+
+<div id="home" class="page active">
+  <p class="tagline">वीडियो देखो, कमाओ और बढ़ो</p>
+  <div class="cats" id="catButtons"></div>
+  <p class="note">Test version: कमाई सिर्फ दिखाने के लिए है, असली पैसे नहीं।</p>
+</div>
+
+<div id="list" class="page">
+  <button class="back" onclick="goHome()">← Back</button>
+  <h2 id="catTitle"></h2>
+  <div id="videoList"></div>
+</div>
+
+<div id="watch" class="page">
+  <button class="back" onclick="backToList()">← Back</button>
+  <h3 id="vidTitle"></h3>
+  <div id="playerBox"><div id="player"></div></div>
+  <div class="stats">
+    Watched this video
+    <b id="watchTime">0 sec</b>
+    Earned now
+    <b id="earnNow">₹0.00</b>
+    <div id="status" style="color:#8b949e;font-size:13px">Press play to start earning</div>
+  </div>
+</div>
+
+<script src="https://www.youtube.com/iframe_api"></script>
+<script>
+// ===== EDIT HERE: your videos (title + YouTube video ID) =====
+var VIDEOS = {
+  "Gaming": [
+    { title: "Gaming video 1", id: "dQw4w9WgXcQ" },
+    { title: "Gaming video 2", id: "dQw4w9WgXcQ" }
+  ],
+  "Comedy": [
+    { title: "Comedy video 1", id: "dQw4w9WgXcQ" },
+    { title: "Comedy video 2", id: "dQw4w9WgXcQ" }
+  ],
+  "Sports": [
+    { title: "Sports video 1", id: "dQw4w9WgXcQ" },
+    { title: "Sports video 2", id: "dQw4w9WgXcQ" }
+  ],
+  "Vlogs": [
+    { title: "Vlog video 1", id: "dQw4w9WgXcQ" },
+    { title: "Vlog video 2", id: "dQw4w9WgXcQ" }
+  ]
+};
+var RATE_PER_MINUTE = 0.70;   // rupees per watched minute (demo)
+var DAILY_LIMIT = 50;         // max demo earning per day
+// ==============================================================
+
+var currentCat = "", player = null, ytReady = false, pendingId = null;
+var seconds = 0, ticker = null, playing = false;
+
+function show(id) {
+  var pages = document.querySelectorAll(".page");
+  for (var i = 0; i < pages.length; i++) pages[i].classList.remove("active");
+  document.getElementById(id).classList.add("active");
+  window.scrollTo(0, 0);
+}
+
+function todayKey() { return "earn_" + new Date().toDateString(); }
+function getTotal() { return parseFloat(localStorage.getItem("ce_total") || "0"); }
+function getToday() { return parseFloat(localStorage.getItem(todayKey()) || "0"); }
+function updateWallet() { document.getElementById("wallet").textContent = "₹" + getTotal().toFixed(2); }
+
+function buildHome() {
+  var box = document.getElementById("catButtons");
+  Object.keys(VIDEOS).forEach(function (c) {
+    var b = document.createElement("button");
+    b.className = "cat"; b.textContent = c;
+    b.onclick = function () { openCategory(c); };
+    box.appendChild(b);
+  });
+}
+
+function openCategory(c) {
+  currentCat = c;
+  document.getElementById("catTitle").textContent = c;
+  var list = document.getElementById("videoList");
+  list.innerHTML = "";
+  VIDEOS[c].forEach(function (v) {
+    var d = document.createElement("div");
+    d.className = "vid";
+    d.innerHTML = "<div>" + v.title + "</div><span>Watch ▶</span>";
+    d.onclick = function () { openVideo(v); };
+    list.appendChild(d);
+  });
+  show("list");
+}
+
+function openVideo(v) {
+  document.getElementById("vidTitle").textContent = v.title;
+  seconds = 0; playing = false;
+  renderStats();
+  show("watch");
+  if (ytReady) { loadVideo(v.id); } else { pendingId = v.id; }
+}
+
+function loadVideo(id) {
+  if (player) { player.loadVideoById(id); player.pauseVideo(); return; }
+  player = new YT.Player("player", {
+    videoId: id,
+    playerVars: { playsinline: 1, rel: 0 },
+    events: { onStateChange: onState }
+  });
+}
+
+function onYouTubeIframeAPIReady() {
+  ytReady = true;
+  if (pendingId) { loadVideo(pendingId); pendingId = null; }
+}
+
+function onState(e) {
+  playing = (e.data === 1);
+  document.getElementById("status").textContent = playing ? "Counting... keep watching" : "Paused: not counting";
+  if (playing) startTicker(); else stopTicker();
+}
+
+function startTicker() {
+  if (ticker) return;
+  ticker = setInterval(function () {
+    if (!playing || document.hidden) return;
+    if (getToday() >= DAILY_LIMIT) {
+      document.getElementById("status").textContent = "Daily demo limit reached";
+      return;
+    }
+    seconds++;
+    var earn = RATE_PER_MINUTE / 60;
+    localStorage.setItem("ce_total", (getTotal() + earn).toString());
+    localStorage.setItem(todayKey(), (getToday() + earn).toString());
+    renderStats();
+    updateWallet();
+  }, 1000);
+}
+
+function stopTicker() { clearInterval(ticker); ticker = null; }
+
+function renderStats() {
+  var m = Math.floor(seconds / 60), s = seconds % 60;
+  document.getElementById("watchTime").textContent = (m ? m + " min " : "") + s + " sec";
+  document.getElementById("earnNow").textContent = "₹" + (seconds * RATE_PER_MINUTE / 60).toFixed(2);
+}
+
+function leaveVideo() {
+  if (player && player.pauseVideo) player.pauseVideo();
+  stopTicker(); playing = false;
+}
+function goHome() { leaveVideo(); show("home"); }
+function backToList() { leaveVideo(); show("list"); }
+
+document.addEventListener("visibilitychange", function () {
+  if (document.hidden && player && player.pauseVideo) player.pauseVideo();
+});
+
+buildHome();
+updateWallet();
+</script>
+</body>
+</html>
